@@ -44,7 +44,7 @@ typedef enum
 typedef struct player{
     int socket_id;
     struct sockaddr_in client_addr;
-    int len;
+    socklen_t len;
     char* username;
     bool visit;
     bool start;
@@ -250,7 +250,7 @@ static bool handle_http_request(int sockfd)
                 stat("html/2_start.html", &st);
                 // increase file size to accommodate the username
                 long size = st.st_size + added_length;
-                n = sprintf(buff, HTTP_200_FORMAT, player_list[index].username, size);
+                n = sprintf(buff, HTTP_200_FORMAT, size);
                 // send the header first
                 if (write(sockfd, buff, n) < 0)
                 {
@@ -276,7 +276,7 @@ static bool handle_http_request(int sockfd)
                 //write line
                 int line_size = 7+username_length;
                 char line[line_size];
-                snprintf(line, sizeof(line), "%s: %s: %s", "<p>", player_list[index].username, "</p>");
+                snprintf(line, sizeof(line), "%s%s%s", "<p>", player_list[index].username, "</p>");
 
                 strncpy(buff + p2, line, line_size);
                 if (write(sockfd, buff, size) < 0)
@@ -293,7 +293,6 @@ static bool handle_http_request(int sockfd)
             else if (strstr(buff, "start=")){
                 if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
                 player_list[index].start = true;
-                player_list[index].end = false;
             }
 
             else if (player_list[1-index].quit){
@@ -305,9 +304,9 @@ static bool handle_http_request(int sockfd)
         }
         else if (method == POST)
         {
-            if ((player_list[index].username) || (strstr(buff, "user="))){
+            if (strstr(buff, "user=")){
                 char * username = strstr(buff, "user=") + 5;
-                strcpy(player_list[index].username, username);
+                player_list[index].username = username;
                 int username_length = strlen(username);
                 // the length needs to include the p tag enclosing the username
                 long added_length = username_length + 7;
@@ -343,7 +342,7 @@ static bool handle_http_request(int sockfd)
                 //write line
                 int line_size = 7+username_length;
                 char line[line_size];
-                snprintf(line, sizeof(line), "%s: %s: %s", "<p>", username, "</p>");
+                snprintf(line, sizeof(line), "%s%s%s", "<p>", username, "</p>");
 
                 strncpy(buff + p2, line, line_size);
                 if (write(sockfd, buff, size) < 0)
