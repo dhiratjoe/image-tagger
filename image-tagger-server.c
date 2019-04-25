@@ -60,11 +60,13 @@ player player_list[2];
 
 void init_player_list(){
   for (int i = 0; i < 2; i++){
+      player_list[i].username = NULL;
       player_list[i].visit = false;
       player_list[i].start = false;
       player_list[i].quit = false;
       player_list[i].end = false;
       player_list[i].keywords = calloc(1000000,sizeof(char*));
+      player_list[i].n_keywords = 0;
   }
 }
 
@@ -74,6 +76,7 @@ int get_index(int i){
       return x;
     }
   }
+  return i;
 }
 
 bool get_html(char* filename, int sockfd, char* buff){
@@ -151,7 +154,7 @@ bool insert_keyword(char *keyword, int sockfd, char* buff){
         //write line
         int line_size = 7+word_length;
         char line[line_size];
-        snprintf(line, sizeof(line), "%s: %s: %s", "<p>", keyword, "</p>");
+        snprintf(line, sizeof(line), "%s%s%s", "<p>", keyword, "</p>\n");
 
         strncpy(buff + p2, line, line_size);
     }
@@ -208,7 +211,7 @@ static bool handle_http_request(int sockfd)
     buff[n] = 0;
 
     char * curr = buff;
-
+    printf("%s\n",curr);
     // parse the method
     METHOD method = UNKNOWN;
     if (strncmp(curr, "GET ", 4) == 0)
@@ -233,17 +236,26 @@ static bool handle_http_request(int sockfd)
     // sanitise the URI
     while (*curr == '.' || *curr == '/')
         ++curr;
+
     // assume the only valid request URI is "/" but it can be modified to accept more files
-    if (*curr == ' ')
+    if (*curr == ' ' || *curr == '?')
         if (method == GET)
         {
             if (strstr(buff, "username=")){
                 player_list[index].visit = true;
-                player_list[index].username = strstr(buff, "username=") + 9;
+		char *start, *end;
+
+		if ((start = strstr(buff, "username=")+9)){
+		    if ((end = strstr(start, "\n"))){
+			player_list[index].username = (char*) malloc(end-start+1);
+			memcpy(player_list[index].username, start, end-start);
+			player_list[index].username[end-start] = '\0';
+		    }
+		}
 
                 int username_length = strlen(player_list[index].username);
                 // the length needs to include the p tag enclosing the username
-                long added_length = username_length + 7;
+                long added_length = username_length + 9;
 
                 // get the size of the file
                 struct stat st;
@@ -274,9 +286,9 @@ static bool handle_http_request(int sockfd)
                 ++p2;
 
                 //write line
-                int line_size = 7+username_length;
+                int line_size = 9+username_length;
                 char line[line_size];
-                snprintf(line, sizeof(line), "%s%s%s", "<p>", player_list[index].username, "</p>");
+                snprintf(line, sizeof(line), "%s%s%s", "<p>", player_list[index].username, "</p>\n");
 
                 strncpy(buff + p2, line, line_size);
                 if (write(sockfd, buff, size) < 0)
@@ -306,10 +318,12 @@ static bool handle_http_request(int sockfd)
         {
             if (strstr(buff, "user=")){
                 char * username = strstr(buff, "user=") + 5;
-                player_list[index].username = username;
+		player_list[index].username = (char*) malloc(strlen(username)+1);
+                memcpy(player_list[index].username, username, strlen(username));
+		player_list[index].username[strlen(username)] = '\0'; 
                 int username_length = strlen(username);
                 // the length needs to include the p tag enclosing the username
-                long added_length = username_length + 7;
+                long added_length = username_length + 9;
 
                 // get the size of the file
                 struct stat st;
@@ -340,9 +354,9 @@ static bool handle_http_request(int sockfd)
                 ++p2;
 
                 //write line
-                int line_size = 7+username_length;
+                int line_size = 9+username_length;
                 char line[line_size];
-                snprintf(line, sizeof(line), "%s%s%s", "<p>", username, "</p>");
+                snprintf(line, sizeof(line), "%s%s%s", "<p>", player_list[index].username, "</p>\n");
 
                 strncpy(buff + p2, line, line_size);
                 if (write(sockfd, buff, size) < 0)
@@ -495,6 +509,7 @@ int main(int argc, char * argv[])
                 else if (!handle_http_request(i))
                 {
                     for (int j = 0; j < 2; j++){
+			free(player_list[j].username);
                         free(player_list[j].keywords);
                     }
                     close(i);

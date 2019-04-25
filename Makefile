@@ -1,16 +1,13 @@
-BIN_DIR = bin
 CC = gcc
-CFLAGS = -std=c99 -O3 -Wall -Wpedantic
+CFLAGS = -std=c99 -O3 -Wall -Wpedantic -g
 
 all: mkbin image-tagger-server
 
 %: %.c
-	$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ $<
+	$(CC) $(CFLAGS) -o $@ $<
 
 .PHONY: clean mkbin
 
 clean:
 	rm -rf $(BIN_DIR)
 
-mkbin:
-	mkdir -p bin
