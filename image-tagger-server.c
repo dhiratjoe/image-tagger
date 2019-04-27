@@ -22,7 +22,7 @@
 
 // constants
 static char const * const HTTP_200_FORMAT_COOKIE = "HTTP/1.1 200 OK\r\n\
-Set-cookie: username=%s;id=%d\r\n\
+Set-cookie: username=%s\r\n\
 Content-Type: text/html\r\n\
 Content-Length: %ld\r\n\r\n";
 static char const * const HTTP_200_FORMAT = "HTTP/1.1 200 OK\r\n\
@@ -47,8 +47,10 @@ typedef struct player{
     bool start;
     bool quit;
     bool end;
-    char **keywords;
+    char keywords[20][20];
     int n_keywords;
+    int total_word_len;
+    char *user_agent;
 } player;
 
 int player_count = 0;
@@ -62,22 +64,39 @@ void init_player_list(){
         player_list[i].start = false;
         player_list[i].quit = false;
         player_list[i].end = false;
-        player_list[i].keywords = calloc(1000000,sizeof(char*));
         player_list[i].n_keywords = 0;
+	for (int x = 0; x < 20; x++){
+	    for (int y = 0; y < 20; y++){
+		player_list[i].keywords[x][y] = 0;
+	}}
+	player_list[i].total_word_len = 0;
+	player_list[i].user_agent = NULL;
     }
 }
 
-int get_index(char* buff){
-    char *index = NULL;
-    char *start, *end;
-    if ((start = strstr(buff, "id=") + 3)){
-	if ((end = strstr(start, "\r"))){
-	    index = (char*) malloc (end-start + 1);
-	    memcpy(index, start, end-start);
-	    index[end-start] = '\0';
+int get_index(char *ua){
+    if (strcmp(player_list[0].user_agent, ua) == 0){
+	free(ua);
+	return 0;
+    }
+    else{
+	free(ua);
+	return 1;
+    }
+}
+
+char* get_user_agent(char* buff){
+    char* result = NULL;
+    char* start, *end;
+
+    if ((start = strstr(buff, "User-Agent: ")+ strlen("User-Agent: "))){
+	if ((end = strstr(start, "\n"))){
+	    result = (char*) malloc (end-start+1);
+	    memcpy(result, start, end-start);
+	    result[end-start] = '\0';
 	}
     }
-    return atoi(index);
+    return result;
 }
 
 bool get_html(char* filename, int sockfd, char* buff){
@@ -108,23 +127,26 @@ bool get_html(char* filename, int sockfd, char* buff){
     return true;
 }
 
-bool insert_keyword(char *keyword, int sockfd, char* buff){
+bool insert_keyword(char *keyword, int sockfd, char* buff, int index){
+
     int word_length = strlen(keyword);
-    int index = get_index(buff);
     long added_length;
 
     if (player_list[index].n_keywords == 0){
         //the length needs to include the p tag enclosing the keyword
-        added_length = word_length + 9;
+	player_list[index].total_word_len += word_length;
     }
     else{
         // the length needs to include the ", " before the keyword
-        added_length = word_length + 2;
+	player_list[index].total_word_len += word_length + 2;
     }
+    added_length = player_list[index].total_word_len + 9;
+    strcpy(player_list[index].keywords[player_list[index].n_keywords], keyword);
+    player_list[index].n_keywords++;
 
     // get the size of the file
     struct stat st;
-    stat("html/4_accepted", &st);
+    stat("html/4_accepted.html", &st);
     // increase file size to accommodate the username
     long size = st.st_size + added_length;
     int n = sprintf(buff, HTTP_200_FORMAT, size);
@@ -135,7 +157,7 @@ bool insert_keyword(char *keyword, int sockfd, char* buff){
         return false;
     }
     // read the content of the HTML file
-    int filefd = open("html/4_accepted", O_RDONLY);
+    int filefd = open("html/4_accepted.html", O_RDONLY);
     n = read(filefd, buff, 2048);
     if (n < 0)
     {
@@ -145,34 +167,30 @@ bool insert_keyword(char *keyword, int sockfd, char* buff){
     }
     close(filefd);
 
+    // move the trailing part backward
+    int p1, p2;
+    for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 264; --p1, --p2)
+        buff[p1] = buff[p2];
+    ++p2;
+    char line[added_length];
     if (player_list[index].n_keywords == 0){
-        // move the trailing part backward
-        int p1, p2;
-        for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 263; --p1, --p2)
-            buff[p1] = buff[p2];
-        ++p2;
-
         //write line
-        int line_size = 9+word_length;
-        char line[line_size];
         snprintf(line, sizeof(line), "%s%s%s", "<p>", keyword, "</p>\n");
-
-        strncpy(buff + p2, line, line_size);
     }
     else{
-        // move the trailing part backward
-        int p1, p2;
-        for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 267; --p1, --p2)
-            buff[p1] = buff[p2];
-        ++p2;
+        //write line
+        char words[player_list[index].total_word_len];
 
-        // put the separator
-        buff[p2++] = ',';
-        buff[p2++] = ' ';
-
-        // copy the username
-        strncpy(buff + p2, keyword, word_length);
+	strcpy(words, player_list[index].keywords[0]);
+	for (int x = 1; x < player_list[index].n_keywords; x++){
+	    strcat(words, ", ");
+	    strcat(words, player_list[index].keywords[x]);
+	}
+        snprintf(line, sizeof(line), "%s%s%s", "<p>", words, "</p>\n");
     }
+
+    // copy the username
+    strncpy(buff + p2, line, added_length);
 
     if (write(sockfd, buff, size) < 0)
     {
@@ -180,8 +198,8 @@ bool insert_keyword(char *keyword, int sockfd, char* buff){
         return false;
     }
 
-    player_list[index].keywords[player_list[index].n_keywords] = keyword;
-    player_list[index].n_keywords++;
+    
+    free(keyword);
     return true;
 }
 
@@ -232,7 +250,21 @@ static bool handle_http_request(int sockfd)
     }
 
     //get player index
-    int index = get_index(buff);
+    int index;
+    char* ua = get_user_agent(buff);
+    if (player_list[0].user_agent == NULL){
+	player_list[0].user_agent = (char*) malloc (strlen(ua)+1);
+	memcpy(player_list[0].user_agent, ua, strlen(ua));
+	index = 0;
+	free(ua); 
+    } else if (player_list[1].user_agent == NULL){
+	player_list[1].user_agent = (char*) malloc (strlen(ua)+1);
+	memcpy(player_list[1].user_agent, ua, strlen(ua));
+	index = 1;
+	free(ua);
+    } else{
+	index = get_index(get_user_agent(buff));
+    }
 
     // sanitise the URI
     while (*curr == '.' || *curr == '/')
@@ -304,9 +336,9 @@ static bool handle_http_request(int sockfd)
             }
 
             else if (strstr(curr, "start=")){
-		printf("Player %d has started\n", index);
                 if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
                 player_list[index].start = true;
+		player_list[index].end = false;
             }
 
             else if (player_list[1-index].quit){
@@ -333,8 +365,7 @@ static bool handle_http_request(int sockfd)
                 stat("html/2_start.html", &st);
                 // increase file size to accommodate the username
                 long size = st.st_size + added_length;
-                n = sprintf(buff, HTTP_200_FORMAT_COOKIE, username, player_count, size);
-		player_count++;
+                n = sprintf(buff, HTTP_200_FORMAT_COOKIE, username, size);
                 // send the header first
                 if (write(sockfd, buff, n) < 0)
                 {
@@ -377,9 +408,16 @@ static bool handle_http_request(int sockfd)
             }
 
             else if (strstr(buff, "keyword=")){
-                if (!player_list[1-index].start){
+		if (player_list[1-index].end){
+		    player_list[index].end = true;
+		    player_list[index].start = false;
+		    if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+		}
+
+                else if (!player_list[1-index].start){
                     if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
                 }
+
                 else{
                     char *keyword = NULL;
 		    char *start, *end;
@@ -392,22 +430,25 @@ static bool handle_http_request(int sockfd)
 			}
 		    }
 
-                    if ((was_submitted(keyword, index)) || (player_list[1-index].end)){
+
+                    if ((was_submitted(keyword, index))){
                         //clear keyword list
                         for (int x = 0; x < player_list[index].n_keywords; x++){
-                            player_list[index].keywords[x] = (char*) NULL;
+                            strcpy(player_list[index].keywords[x],"");
                         }
                         for (int y = 0; y < player_list[1-index].n_keywords; y++){
-                            player_list[index].keywords[y] = (char*) NULL;
+                            strcpy(player_list[index].keywords[y],"");
                         }
                         player_list[index].n_keywords = 0;
                         player_list[1-index].n_keywords = 0;
 
-                        if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;};
+			player_list[index].end = true;
+			player_list[index].start = false;
+			if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                     }
                     else{
-                        insert_keyword(keyword, sockfd, buff);
-                    }
+                        insert_keyword(keyword, sockfd, buff, index);
+              	    }
 		    free(keyword);
                 }
             }
@@ -524,7 +565,7 @@ int main(int argc, char * argv[])
                 {
                     for (int j = 0; j < 2; j++){
 			free(player_list[j].username);
-                        free(player_list[j].keywords);
+                        free(player_list[j].user_agent);
                     }
                     close(i);
                     FD_CLR(i, &masterfds);
