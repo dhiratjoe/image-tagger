@@ -76,7 +76,7 @@ void init_player_list(){
         player_list[i].n_keywords = 0;
         player_list[i].total_word_len = 0;
         player_list[i].user_agent = NULL;
-	player_list[i].games_played = 0;
+        player_list[i].games_played = 0;
     }
 }
 
@@ -343,15 +343,15 @@ static bool handle_http_request(int sockfd)
             // if player wants to quit render gameover page and close connection
             else if (player_list[1-index].quit){
                 player_list[index].quit = true;
-		if (player_list[index].username){
-		    free(player_list[index].username);
+                if (player_list[index].username){
+                    free(player_list[index].username);
                     free(player_list[index].user_agent);
                 }
-		if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
+                if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
             }
 
-	    // if player wants to start render image for first turn
+            // if player wants to start render image for first turn
             else if (strstr(curr, "start=")){
                 player_list[index].start = true;
                 player_list[index].end = false;
@@ -419,10 +419,10 @@ static bool handle_http_request(int sockfd)
             else if ((strstr(buff, "quit=")) || (player_list[1-index].quit)){
                 player_list[index].quit = true;
                 if (player_list[index].username){
-		    free(player_list[index].username);
+                    free(player_list[index].username);
                     free(player_list[index].user_agent);
                 }
-		if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
+                if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
             }
 
@@ -430,20 +430,20 @@ static bool handle_http_request(int sockfd)
             else if (strstr(buff, "keyword=")){
 
                 // if other player has won, render endgame page
-                if (player_list[1-index].end && player_list[index].games_played < player_list[1-index].games_played){
-                    player_list[index].end = true;
-                    player_list[index].start = false;
-		    player_list[index].games_played++;
-		    printf("start status %d\n",player_list[index].start);
-                    if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+                if (player_list[1-index].start == false){
+                    if ((player_list[index].games_played < player_list[1-index].games_played) || (player_list[index].games_played > player_list[1-index].games_played)){
+                        player_list[index].end = true;
+                        player_list[index].start = false;
+                        player_list[index].games_played++;
+                        printf("start status %d\n",player_list[index].start);
+                        if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+                    }
+                    else{
+                        if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
+                    }
                 }
 
-                // if other player hasn't started yet, discard the keyword submitted
-                else if (((player_list[1-index].start == false) || (player_list[1-index].end)) && (player_list[index].games_played == player_list[1-index].games_played)){
-                    if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
-                }
-
-                else if ((player_list[1-index].start) && (player_list[index].games_played == player_list[1-index].games_played)){
+                else{
                     char *keyword = get_value_between(buff, "keyword=", "&guess");
 
                     // if keyword has been submitted, empty each player's keyword list and render endgame page
@@ -460,7 +460,7 @@ static bool handle_http_request(int sockfd)
 
                         player_list[index].end = true;
                         player_list[index].start = false;
-			player_list[index].games_played++;
+                        player_list[index].games_played++;
                         if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                     }
 
@@ -473,7 +473,7 @@ static bool handle_http_request(int sockfd)
             }
         }
         else{
-        // never used, just for completeness
+            // never used, just for completeness
             fprintf(stderr, "no other methods supported");
         }
     }
@@ -586,7 +586,7 @@ int main(int argc, char * argv[])
             {
                 // close connection
                 close(i);
-		shutdown(i, 2);
+                shutdown(i, 2);
                 FD_CLR(i, &masterfds);
             }
         }
