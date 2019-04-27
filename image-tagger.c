@@ -1,5 +1,7 @@
 /*
-** image-tagger-server.c
+** Submission for COMP30023 Computer Systems Project 1 2019
+** Owner: Dhira Metta Ksanti Tjoe
+** Student ID: 849808
 */
 
 #include <errno.h>
@@ -41,6 +43,7 @@ typedef enum
     UNKNOWN
 } METHOD;
 
+// a struct representing a player in the game
 typedef struct player{
     char* username;
     bool visit;
@@ -53,10 +56,10 @@ typedef struct player{
     char *user_agent;
 } player;
 
-int player_count = 0;
-
+// initialise so that there can only be 2 players at once
 player player_list[2];
 
+// initialise attributes in player struct
 void init_player_list(){
     for (int i = 0; i < 2; i++){
         player_list[i].username = NULL;
@@ -64,41 +67,44 @@ void init_player_list(){
         player_list[i].start = false;
         player_list[i].quit = false;
         player_list[i].end = false;
+        for (int x = 0; x < 20; x++){
+            for (int y = 0; y < 20; y++){
+                player_list[i].keywords[x][y] = 0;
+            }
+        }
         player_list[i].n_keywords = 0;
-	for (int x = 0; x < 20; x++){
-	    for (int y = 0; y < 20; y++){
-		player_list[i].keywords[x][y] = 0;
-	}}
-	player_list[i].total_word_len = 0;
-	player_list[i].user_agent = NULL;
+        player_list[i].total_word_len = 0;
+        player_list[i].user_agent = NULL;
     }
 }
 
+// identify player by their user agent
 int get_index(char *ua){
     if (strcmp(player_list[0].user_agent, ua) == 0){
-	free(ua);
-	return 0;
+        free(ua);
+        return 0;
     }
     else{
-	free(ua);
-	return 1;
+        free(ua);
+        return 1;
     }
 }
 
-char* get_user_agent(char* buff){
-    char* result = NULL;
-    char* start, *end;
 
-    if ((start = strstr(buff, "User-Agent: ")+ strlen("User-Agent: "))){
-	if ((end = strstr(start, "\n"))){
-	    result = (char*) malloc (end-start+1);
-	    memcpy(result, start, end-start);
-	    result[end-start] = '\0';
-	}
+// get value between two patterns and assign the value to result buffer provided
+void get_value_between(char* result, char* buff, char* pattern1, char* pattern2){
+    char *start, *end;
+
+    if ((start = strstr(buff, pattern1)+ strlen(pattern1))){
+        if ((end = strstr(start, pattern2))){
+            result = (char*) malloc (end-start+1);
+            memcpy(result, start, end-start);
+            result[end-start] = '\0';
+        }
     }
-    return result;
 }
 
+// function to get html
 bool get_html(char* filename, int sockfd, char* buff){
     // get the size of the file
     struct stat st;
@@ -127,19 +133,21 @@ bool get_html(char* filename, int sockfd, char* buff){
     return true;
 }
 
+// insert keyword into player's list of keywords and print them out
 bool insert_keyword(char *keyword, int sockfd, char* buff, int index){
 
     int word_length = strlen(keyword);
     long added_length;
 
     if (player_list[index].n_keywords == 0){
-        //the length needs to include the p tag enclosing the keyword
-	player_list[index].total_word_len += word_length;
+        player_list[index].total_word_len += word_length;
     }
     else{
         // the length needs to include the ", " before the keyword
-	player_list[index].total_word_len += word_length + 2;
+        player_list[index].total_word_len += word_length + 2;
     }
+
+    //the length needs to include the p tag enclosing the keyword
     added_length = player_list[index].total_word_len + 9;
     strcpy(player_list[index].keywords[player_list[index].n_keywords], keyword);
     player_list[index].n_keywords++;
@@ -147,7 +155,7 @@ bool insert_keyword(char *keyword, int sockfd, char* buff, int index){
     // get the size of the file
     struct stat st;
     stat("html/4_accepted.html", &st);
-    // increase file size to accommodate the username
+    // increase file size to accommodate the words
     long size = st.st_size + added_length;
     int n = sprintf(buff, HTTP_200_FORMAT, size);
     // send the header first
@@ -170,26 +178,27 @@ bool insert_keyword(char *keyword, int sockfd, char* buff, int index){
     // move the trailing part backward
     int p1, p2;
     for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 264; --p1, --p2)
-        buff[p1] = buff[p2];
+    buff[p1] = buff[p2];
     ++p2;
     char line[added_length];
+
+    // enclose keyword(s) in <p> tag
     if (player_list[index].n_keywords == 0){
-        //write line
         snprintf(line, sizeof(line), "%s%s%s", "<p>", keyword, "</p>\n");
     }
     else{
-        //write line
+        // empty string to store concatenated words separated by ", "
         char words[player_list[index].total_word_len];
 
-	strcpy(words, player_list[index].keywords[0]);
-	for (int x = 1; x < player_list[index].n_keywords; x++){
-	    strcat(words, ", ");
-	    strcat(words, player_list[index].keywords[x]);
-	}
+        strcpy(words, player_list[index].keywords[0]);
+        for (int x = 1; x < player_list[index].n_keywords; x++){
+            strcat(words, ", ");
+            strcat(words, player_list[index].keywords[x]);
+        }
         snprintf(line, sizeof(line), "%s%s%s", "<p>", words, "</p>\n");
     }
 
-    // copy the username
+    // copy the words
     strncpy(buff + p2, line, added_length);
 
     if (write(sockfd, buff, size) < 0)
@@ -198,11 +207,11 @@ bool insert_keyword(char *keyword, int sockfd, char* buff, int index){
         return false;
     }
 
-    
     free(keyword);
     return true;
 }
 
+// checks if keyword was submitted by other player
 bool was_submitted(char* keyword, int index){
     for (int i = 0; i < player_list[1-index].n_keywords; i++){
         if (strcmp(player_list[1-index].keywords[i], keyword) == 0){
@@ -212,6 +221,7 @@ bool was_submitted(char* keyword, int index){
     return false;
 }
 
+//handle http request
 static bool handle_http_request(int sockfd)
 {
     // try to read the request
@@ -220,9 +230,9 @@ static bool handle_http_request(int sockfd)
     if (n <= 0)
     {
         if (n < 0)
-            perror("read");
+        perror("read");
         else
-            printf("socket %d close the connection\n", sockfd);
+        printf("socket %d close the connection\n", sockfd);
         return false;
     }
 
@@ -251,40 +261,29 @@ static bool handle_http_request(int sockfd)
 
     //get player index
     int index;
-    char* ua = get_user_agent(buff);
+
     if (player_list[0].user_agent == NULL){
-	player_list[0].user_agent = (char*) malloc (strlen(ua)+1);
-	memcpy(player_list[0].user_agent, ua, strlen(ua));
-	index = 0;
-	free(ua); 
+        get_value_between(player_list[0].user_agent, buff, "User-Agent: ", "\n");
+        index = 0;
     } else if (player_list[1].user_agent == NULL){
-	player_list[1].user_agent = (char*) malloc (strlen(ua)+1);
-	memcpy(player_list[1].user_agent, ua, strlen(ua));
-	index = 1;
-	free(ua);
+        get_value_between(player_list[0].user_agent, buff, "User-Agent: ", "\n");
+        index = 1;
     } else{
-	index = get_index(get_user_agent(buff));
+        char* ua = NULL;
+        index = get_index(get_value_between(ua, buff, "User-Agent: ", "\n"));
     }
 
     // sanitise the URI
     while (*curr == '.' || *curr == '/')
-        ++curr;
+    ++curr;
 
-    // assume the only valid request URI is "/" but it can be modified to accept more files
-    if (*curr)
-        if (method == GET)
-        {
+    if (*curr){
+        if (method == GET){
+
+            // get username from cookie and respond with the start page with username appended
             if ((strstr(buff, "username=")) && (player_list[index].username==NULL)){
                 player_list[index].visit = true;
-		char *start, *end;
-
-		if ((start = strstr(buff, "username=")+9)){
-		    if ((end = strstr(start, "\r"))){
-			player_list[index].username = (char*) malloc(end-start+1);
-			memcpy(player_list[index].username, start, end-start);
-			player_list[index].username[end-start] = '\0';
-		    }
-		}
+                get_value_between(player_list[index].username, buff, "username=","\r");
 
                 int username_length = strlen(player_list[index].username);
                 // the length needs to include the p tag enclosing the username
@@ -315,7 +314,7 @@ static bool handle_http_request(int sockfd)
                 // move the trailing part backward
                 int p1, p2;
                 for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 213; --p1, --p2)
-                    buff[p1] = buff[p2];
+                buff[p1] = buff[p2];
                 ++p2;
 
                 //write line
@@ -331,31 +330,35 @@ static bool handle_http_request(int sockfd)
                 }
             }
 
+            // if this is player's first visit render intro page
             if (!(player_list[index].visit)){
                 if (!(get_html("html/1_intro.html", sockfd, buff))){return false;};
             }
 
-            else if (strstr(curr, "start=")){
-                if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
+            // if player wants to start render image for first turn
+            else if ((strstr(curr, "start=")) && (!(player_list[index].start))){
                 player_list[index].start = true;
-		player_list[index].end = false;
+                player_list[index].end = false;
+                if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
             }
 
+            // if player wants to quit render gameover page and close connection
             else if (player_list[1-index].quit){
                 player_list[index].quit = true;
                 if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
             }
-
         }
-        else if (method == POST)
-        {
+
+        else if (method == POST){
+
+            // if player inserts username
             if (strstr(buff, "user=")){
-		player_list[index].visit = true;
+                player_list[index].visit = true;
                 char * username = strstr(buff, "user=") + 5;
-		player_list[index].username = (char*) malloc(strlen(username)+1);
+                player_list[index].username = (char*) malloc(strlen(username)+1);
                 memcpy(player_list[index].username, username, strlen(username));
-		player_list[index].username[strlen(username)] = '\0'; 
+                player_list[index].username[strlen(username)] = '\0';
                 int username_length = strlen(username);
                 // the length needs to include the p tag enclosing the username
                 long added_length = username_length + 9;
@@ -365,6 +368,7 @@ static bool handle_http_request(int sockfd)
                 stat("html/2_start.html", &st);
                 // increase file size to accommodate the username
                 long size = st.st_size + added_length;
+                // set cookie
                 n = sprintf(buff, HTTP_200_FORMAT_COOKIE, username, size);
                 // send the header first
                 if (write(sockfd, buff, n) < 0)
@@ -385,7 +389,7 @@ static bool handle_http_request(int sockfd)
                 // move the trailing part backward
                 int p1, p2;
                 for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 213; --p1, --p2)
-                    buff[p1] = buff[p2];
+                buff[p1] = buff[p2];
                 ++p2;
 
                 //write line
@@ -401,36 +405,34 @@ static bool handle_http_request(int sockfd)
                 }
 
             }
+
+            // if player wants to quit render gameover page and close connection
             else if ((strstr(buff, "quit=")) || (player_list[1-index].quit)){
                 player_list[index].quit = true;
                 if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
             }
 
+            // if player wants to submit keyword
             else if (strstr(buff, "keyword=")){
-		if (player_list[1-index].end){
-		    player_list[index].end = true;
-		    player_list[index].start = false;
-		    if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
-		}
 
+                // if other player has won, render endgame page
+                if (player_list[1-index].end){
+                    player_list[index].end = true;
+                    player_list[index].start = false;
+                    if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+                }
+
+                // if other player hasn't started yet, discard the keyword submitted
                 else if (!player_list[1-index].start){
                     if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
                 }
 
                 else{
                     char *keyword = NULL;
-		    char *start, *end;
+                    get_value_between(keyword, buff, "keyword=", "&guess");
 
-		    if ((start = strstr(buff, "keyword=") + 8)){
-			if ((end = strstr(start, "&guess"))){
-			    keyword = (char*) malloc (end-start + 1);
-			    memcpy(keyword, start, end-start);
-			    keyword[end-start] = '\0';
-			}
-		    }
-
-
+                    // if keyword has been submitted, empty each player's keyword list and render endgame page
                     if ((was_submitted(keyword, index))){
                         //clear keyword list
                         for (int x = 0; x < player_list[index].n_keywords; x++){
@@ -442,20 +444,23 @@ static bool handle_http_request(int sockfd)
                         player_list[index].n_keywords = 0;
                         player_list[1-index].n_keywords = 0;
 
-			player_list[index].end = true;
-			player_list[index].start = false;
-			if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+                        player_list[index].end = true;
+                        player_list[index].start = false;
+                        if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                     }
+
+                    // otherwise show inputted keyword list
                     else{
                         insert_keyword(keyword, sockfd, buff, index);
-              	    }
-		    free(keyword);
+                    }
+                    free(keyword);
                 }
             }
         }
-        else
-            // never used, just for completeness
+        else{
+        // never used, just for completeness
             fprintf(stderr, "no other methods supported");
+        }
     // send 404
     else if (write(sockfd, HTTP_404, HTTP_404_LENGTH) < 0)
     {
@@ -505,7 +510,7 @@ int main(int argc, char * argv[])
         exit(EXIT_FAILURE);
     }
     else{
-        printf("image_tagger is now running at IP: %s on port %s\n", argv[1], argv[2]);
+        printf("image_tagger server is now running at IP: %s on port %s\n", argv[1], argv[2]);
     }
 
     // listen on the socket
@@ -532,45 +537,46 @@ int main(int argc, char * argv[])
 
         // loop all possible descriptor
         for (int i = 0; i <= maxfd; ++i)
-            // determine if the current file descriptor is active
-            if (FD_ISSET(i, &readfds))
+        // determine if the current file descriptor is active
+        if (FD_ISSET(i, &readfds))
+        {
+            // create new socket if there is new incoming connection request
+            if (i == sockfd)
             {
-                // create new socket if there is new incoming connection request
-                if (i == sockfd)
+                struct sockaddr_in cliaddr;
+                socklen_t clilen = sizeof(cliaddr);
+                int newsockfd = accept(sockfd, (struct sockaddr *)&cliaddr, &clilen);
+                if (newsockfd < 0)
+                perror("accept");
+                else
                 {
-                    struct sockaddr_in cliaddr;
-                    socklen_t clilen = sizeof(cliaddr);
-                    int newsockfd = accept(sockfd, (struct sockaddr *)&cliaddr, &clilen);
-                    if (newsockfd < 0)
-                        perror("accept");
-                    else
-                    {
-                        // add the socket to the set
-                        FD_SET(newsockfd, &masterfds);
-                        // update the maximum tracker
-                        if (newsockfd > maxfd)
-                            maxfd = newsockfd;
-                        // print out the IP and the socket number
-                        char ip[INET_ADDRSTRLEN];
-                        printf(
-                            "new connection from %s on socket %d\n",
-                            // convert to human readable string
-                            inet_ntop(cliaddr.sin_family, &cliaddr.sin_addr, ip, INET_ADDRSTRLEN),
-                            newsockfd
-                        );
-		    }
-                }
-                // a request is sent from the client
-                else if (!handle_http_request(i))
-                {
-                    for (int j = 0; j < 2; j++){
-			free(player_list[j].username);
-                        free(player_list[j].user_agent);
-                    }
-                    close(i);
-                    FD_CLR(i, &masterfds);
+                    // add the socket to the set
+                    FD_SET(newsockfd, &masterfds);
+                    // update the maximum tracker
+                    if (newsockfd > maxfd)
+                    maxfd = newsockfd;
+                    // print out the IP and the socket number
+                    char ip[INET_ADDRSTRLEN];
+                    printf(
+                        "new connection from %s on socket %d\n",
+                        // convert to human readable string
+                        inet_ntop(cliaddr.sin_family, &cliaddr.sin_addr, ip, INET_ADDRSTRLEN),
+                        newsockfd
+                    );
                 }
             }
+            // a request is sent from the client
+            else if (!handle_http_request(i))
+            {
+                // close connection and free memblocks
+                for (int j = 0; j < 2; j++){
+                    free(player_list[j].username);
+                    free(player_list[j].user_agent);
+                }
+                close(i);
+                FD_CLR(i, &masterfds);
+            }
+        }
     }
 
     return 0;

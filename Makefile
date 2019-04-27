@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -std=c99 -O3 -Wall -Wpedantic -g
 
-all: mkbin image-tagger-server
+all: mkbin image-tagger
 
 %: %.c
 	$(CC) $(CFLAGS) -o $@ $<
@@ -10,4 +10,3 @@ all: mkbin image-tagger-server
 
 clean:
 	rm -rf $(BIN_DIR)
-
