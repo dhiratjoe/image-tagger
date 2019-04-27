@@ -54,6 +54,7 @@ typedef struct player{
     int n_keywords;
     int total_word_len;
     char *user_agent;
+    int games_played;
 } player;
 
 // initialise so that there can only be 2 players at once
@@ -75,6 +76,7 @@ void init_player_list(){
         player_list[i].n_keywords = 0;
         player_list[i].total_word_len = 0;
         player_list[i].user_agent = NULL;
+	player_list[i].games_played = 0;
     }
 }
 
@@ -92,7 +94,8 @@ int get_index(char *ua){
 
 
 // get value between two patterns and assign the value to result buffer provided
-void get_value_between(char* result, char* buff, char* pattern1, char* pattern2){
+char* get_value_between(char* buff, char* pattern1, char* pattern2){
+    char *result=NULL;
     char *start, *end;
 
     if ((start = strstr(buff, pattern1)+ strlen(pattern1))){
@@ -102,6 +105,8 @@ void get_value_between(char* result, char* buff, char* pattern1, char* pattern2)
             result[end-start] = '\0';
         }
     }
+
+    return result;
 }
 
 // function to get html
@@ -263,14 +268,14 @@ static bool handle_http_request(int sockfd)
     int index;
 
     if (player_list[0].user_agent == NULL){
-        get_value_between(player_list[0].user_agent, buff, "User-Agent: ", "\n");
+        player_list[0].user_agent = get_value_between(buff, "User-Agent: ", "\n");
         index = 0;
     } else if (player_list[1].user_agent == NULL){
-        get_value_between(player_list[0].user_agent, buff, "User-Agent: ", "\n");
+        player_list[1].user_agent = get_value_between(buff, "User-Agent: ", "\n");
         index = 1;
     } else{
-        char* ua = NULL;
-        index = get_index(get_value_between(ua, buff, "User-Agent: ", "\n"));
+        char* ua = get_value_between(buff, "User-Agent: ", "\n");
+        index = get_index(ua);
     }
 
     // sanitise the URI
@@ -281,9 +286,9 @@ static bool handle_http_request(int sockfd)
         if (method == GET){
 
             // get username from cookie and respond with the start page with username appended
-            if ((strstr(buff, "username=")) && (player_list[index].username==NULL)){
+            if ((player_list[index].visit == false) && (strstr(buff, "username=")) && (player_list[index].username==NULL)){
                 player_list[index].visit = true;
-                get_value_between(player_list[index].username, buff, "username=","\r");
+                player_list[index].username = get_value_between(buff, "username=","\r");
 
                 int username_length = strlen(player_list[index].username);
                 // the length needs to include the p tag enclosing the username
@@ -335,18 +340,22 @@ static bool handle_http_request(int sockfd)
                 if (!(get_html("html/1_intro.html", sockfd, buff))){return false;};
             }
 
-            // if player wants to start render image for first turn
-            else if ((strstr(curr, "start=")) && (!(player_list[index].start))){
-                player_list[index].start = true;
-                player_list[index].end = false;
-                if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
-            }
-
             // if player wants to quit render gameover page and close connection
             else if (player_list[1-index].quit){
                 player_list[index].quit = true;
-                if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
+		if (player_list[index].username){
+		    free(player_list[index].username);
+                    free(player_list[index].user_agent);
+                }
+		if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
+            }
+
+	    // if player wants to start render image for first turn
+            else if (strstr(curr, "start=")){
+                player_list[index].start = true;
+                player_list[index].end = false;
+                if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
             }
         }
 
@@ -409,7 +418,11 @@ static bool handle_http_request(int sockfd)
             // if player wants to quit render gameover page and close connection
             else if ((strstr(buff, "quit=")) || (player_list[1-index].quit)){
                 player_list[index].quit = true;
-                if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
+                if (player_list[index].username){
+		    free(player_list[index].username);
+                    free(player_list[index].user_agent);
+                }
+		if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
                 return false;
             }
 
@@ -417,20 +430,21 @@ static bool handle_http_request(int sockfd)
             else if (strstr(buff, "keyword=")){
 
                 // if other player has won, render endgame page
-                if (player_list[1-index].end){
+                if (player_list[1-index].end && player_list[index].games_played < player_list[1-index].games_played){
                     player_list[index].end = true;
                     player_list[index].start = false;
+		    player_list[index].games_played++;
+		    printf("start status %d\n",player_list[index].start);
                     if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                 }
 
                 // if other player hasn't started yet, discard the keyword submitted
-                else if (!player_list[1-index].start){
+                else if (((player_list[1-index].start == false) || (player_list[1-index].end)) && (player_list[index].games_played == player_list[1-index].games_played)){
                     if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
                 }
 
-                else{
-                    char *keyword = NULL;
-                    get_value_between(keyword, buff, "keyword=", "&guess");
+                else if ((player_list[1-index].start) && (player_list[index].games_played == player_list[1-index].games_played)){
+                    char *keyword = get_value_between(buff, "keyword=", "&guess");
 
                     // if keyword has been submitted, empty each player's keyword list and render endgame page
                     if ((was_submitted(keyword, index))){
@@ -446,6 +460,7 @@ static bool handle_http_request(int sockfd)
 
                         player_list[index].end = true;
                         player_list[index].start = false;
+			player_list[index].games_played++;
                         if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                     }
 
@@ -453,7 +468,7 @@ static bool handle_http_request(int sockfd)
                     else{
                         insert_keyword(keyword, sockfd, buff, index);
                     }
-                    free(keyword);
+                    if (keyword){free(keyword);}
                 }
             }
         }
@@ -461,6 +476,7 @@ static bool handle_http_request(int sockfd)
         // never used, just for completeness
             fprintf(stderr, "no other methods supported");
         }
+    }
     // send 404
     else if (write(sockfd, HTTP_404, HTTP_404_LENGTH) < 0)
     {
@@ -568,12 +584,9 @@ int main(int argc, char * argv[])
             // a request is sent from the client
             else if (!handle_http_request(i))
             {
-                // close connection and free memblocks
-                for (int j = 0; j < 2; j++){
-                    free(player_list[j].username);
-                    free(player_list[j].user_agent);
-                }
+                // close connection
                 close(i);
+		shutdown(i, 2);
                 FD_CLR(i, &masterfds);
             }
         }
