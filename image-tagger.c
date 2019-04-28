@@ -49,7 +49,6 @@ typedef struct player{
     bool visit;
     bool start;
     bool quit;
-    bool end;
     char keywords[20][20];
     int n_keywords;
     int total_word_len;
@@ -67,7 +66,6 @@ void init_player_list(){
         player_list[i].visit = false;
         player_list[i].start = false;
         player_list[i].quit = false;
-        player_list[i].end = false;
         for (int x = 0; x < 20; x++){
             for (int y = 0; y < 20; y++){
                 player_list[i].keywords[x][y] = 0;
@@ -245,7 +243,7 @@ static bool handle_http_request(int sockfd)
     buff[n] = 0;
 
     char * curr = buff;
-    printf("%s\n",curr);
+
     // parse the method
     METHOD method = UNKNOWN;
     if (strncmp(curr, "GET ", 4) == 0)
@@ -348,13 +346,13 @@ static bool handle_http_request(int sockfd)
                     free(player_list[index].user_agent);
                 }
                 if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
-                return false;
+                shutdown(sockfd, 2);
+		return false;
             }
 
             // if player wants to start render image for first turn
             else if (strstr(curr, "start=")){
                 player_list[index].start = true;
-                player_list[index].end = false;
                 if (!(get_html("html/3_first_turn.html", sockfd, buff))){return false;};
             }
         }
@@ -423,27 +421,34 @@ static bool handle_http_request(int sockfd)
                     free(player_list[index].user_agent);
                 }
                 if (!(get_html("html/7_gameover.html", sockfd, buff))){return false;};
-                return false;
+                shutdown(sockfd, 2);
+		return false;
             }
 
             // if player wants to submit keyword
             else if (strstr(buff, "keyword=")){
 
-                // if other player has won, render endgame page
                 if (player_list[1-index].start == false){
-                    if ((player_list[index].games_played < player_list[1-index].games_played) || (player_list[index].games_played > player_list[1-index].games_played)){
-                        player_list[index].end = true;
+		    // if other player has won, render endgame page
+                    if (player_list[index].games_played < player_list[1-index].games_played){
                         player_list[index].start = false;
                         player_list[index].games_played++;
-                        printf("start status %d\n",player_list[index].start);
                         if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
                     }
+		    // if other player hasn't started, discard keyword
                     else{
                         if (!(get_html("html/5_discarded.html", sockfd, buff))){return false;};
                     }
                 }
 
                 else{
+
+		    if (player_list[index].games_played < player_list[1-index].games_played){
+                        player_list[index].start = false;
+                        player_list[index].games_played++;
+                        if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+                    }
+
                     char *keyword = get_value_between(buff, "keyword=", "&guess");
 
                     // if keyword has been submitted, empty each player's keyword list and render endgame page
@@ -457,18 +462,17 @@ static bool handle_http_request(int sockfd)
                         }
                         player_list[index].n_keywords = 0;
                         player_list[1-index].n_keywords = 0;
-
-                        player_list[index].end = true;
+			player_list[1-index].start = false;
                         player_list[index].start = false;
                         player_list[index].games_played++;
                         if (!(get_html("html/6_endgame.html", sockfd, buff))){return false;}
+			free(keyword);
                     }
 
                     // otherwise show inputted keyword list
                     else{
                         insert_keyword(keyword, sockfd, buff, index);
                     }
-                    if (keyword){free(keyword);}
                 }
             }
         }
